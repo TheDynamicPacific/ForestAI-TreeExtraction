@@ -1,0 +1,56 @@
+/* Additional custom styles */
+
+/* Make the map container responsive */
+#map {
+    width: 100%;
+    border-radius: 4px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Style for the GeoJSON display */
+#geojsonDisplay {
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+/* Ensure file upload input has correct styling */
+input[type="file"] {
+    cursor: pointer;
+}
+
+/* Add a subtle hover effect to the upload button */
+.btn-primary:hover {
+    box-shadow: 0 0 8px rgba(13, 110, 253, 0.5);
+}
+
+/* Ensure the footer stays at the bottom */
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+footer {
+    margin-top: auto;
+}
+
+/* Styling for the processing spinner and status message */
+#processingStatus {
+    padding: 15px;
+    border-radius: 4px;
+    background-color: rgba(13, 110, 253, 0.1);
+}
+
+/* Pre tag for JSON display */
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 768px) {
+    #map {
+        height: 300px !important;
+    }
+}

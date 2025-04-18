@@ -1,0 +1,115 @@
+/**
+ * File upload and processing functionality
+ * This file handles the image upload, processing, and result display
+ */
+
+// Store the current GeoJSON filename for download
+let currentGeoJsonFilename = null;
+
+// DOM elements
+const uploadForm = document.getElementById('uploadForm');
+const imageFileInput = document.getElementById('imageFile');
+const processingStatus = document.getElementById('processingStatus');
+const errorMessage = document.getElementById('errorMessage');
+const resultsSection = document.getElementById('resultsSection');
+const geojsonDisplay = document.getElementById('geojsonDisplay');
+const downloadBtn = document.getElementById('downloadBtn');
+
+// Handle form submission
+uploadForm.addEventListener('submit', function(event) {
+    event.preventDefault();
+    
+    // Get the selected file
+    const file = imageFileInput.files[0];
+    
+    // Check if a file was selected
+    if (!file) {
+        showError('Please select an image file to upload');
+        return;
+    }
+    
+    // Check file type
+    const validImageTypes = ['image/png', 'image/jpeg', 'image/tiff', 'image/tif'];
+    if (!validImageTypes.includes(file.type)) {
+        showError('Please select a valid image file (PNG, JPG, or TIFF)');
+        return;
+    }
+    
+    // Show processing status and hide error message
+    processingStatus.classList.remove('d-none');
+    errorMessage.classList.add('d-none');
+    resultsSection.classList.add('d-none');
+    
+    // Create FormData object for file upload
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Upload the file
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(errorData => {
+                throw new Error(errorData.error || 'Upload failed');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Hide processing status
+        processingStatus.classList.add('d-none');
+        
+        // Store the GeoJSON filename for download
+        currentGeoJsonFilename = data.geojson_filename;
+        
+        // Display the results
+        displayResults(data);
+    })
+    .catch(error => {
+        // Hide processing status and show error
+        processingStatus.classList.add('d-none');
+        showError(error.message || 'An error occurred during processing');
+    });
+});
+
+// Display the processing results
+function displayResults(data) {
+    // Show the results section
+    resultsSection.classList.remove('d-none');
+    
+    // Initialize the map if not already done
+    if (!map) {
+        initMap();
+    }
+    
+    // Display the GeoJSON on the map
+    displayGeoJSON(data.geojson);
+    
+    // Format and display the GeoJSON in the text area
+    geojsonDisplay.textContent = formatGeoJSON(data.geojson);
+    
+    // Scroll to the results section
+    resultsSection.scrollIntoView({ behavior: 'smooth' });
+}
+
+// Show error message
+function showError(message) {
+    errorMessage.textContent = message;
+    errorMessage.classList.remove('d-none');
+}
+
+// Handle download button click
+downloadBtn.addEventListener('click', function() {
+    if (currentGeoJsonFilename) {
+        window.location.href = `/download/${currentGeoJsonFilename}`;
+    } else {
+        showError('No GeoJSON data available for download');
+    }
+});
+
+// Clear file input when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    imageFileInput.value = '';
+});
