@@ -14,8 +14,14 @@ function initMap() {
         map.remove();
     }
 
-    // Create a new map centered on a default location (Central US instead of NY)
-    map = L.map('map').setView([33.0, -97.0], 8);
+    // Default to Rio de Janeiro, Brazil (location of our sample data)
+    // This helps users see where the extracted features should appear
+    map = L.map('map').setView([-22.96, -43.38], 13);
+    
+    // Attempt to detect Brazil imagery based on coordinates in the URL
+    if (window.location.search.includes('region=brazil')) {
+        map.setView([-22.96, -43.38], 13);
+    }
 
     // Define tile layers
     const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -51,6 +57,26 @@ function displayGeoJSON(geojsonData) {
         initMap();
     }
 
+    // Check if this appears to be Brazil data
+    let isBrazilData = false;
+    if (geojsonData && geojsonData.features && geojsonData.features.length > 0) {
+        // Check the first feature's coordinates - if they're near Rio de Janeiro
+        const firstFeature = geojsonData.features[0];
+        if (firstFeature.geometry && firstFeature.geometry.coordinates) {
+            const coords = firstFeature.geometry.coordinates[0][0];
+            if (coords) {
+                const [lon, lat] = coords;
+                // Check if coordinates are in Brazil (roughly)
+                if (lat < -20 && lat > -25 && lon < -40 && lon > -45) {
+                    isBrazilData = true;
+                    console.log("Detected Brazil coordinates in data");
+                    // Also switch to the satellite view for better context
+                    document.querySelectorAll('.leaflet-control-layers-base input')[1].click();
+                }
+            }
+        }
+    }
+    
     // Update feature type if available in the data
     if (geojsonData && geojsonData.feature_type) {
         currentFeatureType = geojsonData.feature_type;
