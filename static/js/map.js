@@ -14,15 +14,30 @@ function initMap() {
         map.remove();
     }
 
-    // Create a new map centered on a default location
-    // Use a location outside of Manhattan
-    map = L.map('map').setView([41.0, -74.5], 10);
+    // Create a new map centered on a default location (Central US instead of NY)
+    map = L.map('map').setView([33.0, -97.0], 8);
 
-    // Add the base tile layer (OpenStreetMap)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // Define tile layers
+    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19
-    }).addTo(map);
+    });
+    
+    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Imagery &copy; Esri',
+        maxZoom: 19
+    });
+
+    // Add OpenStreetMap layer by default
+    osmLayer.addTo(map);
+    
+    // Add layer control
+    const baseLayers = {
+        "OpenStreetMap": osmLayer,
+        "Satellite": satelliteLayer
+    };
+    
+    L.control.layers(baseLayers, null, {position: 'topright'}).addTo(map);
 
     // Add a scale control
     L.control.scale().addTo(map);

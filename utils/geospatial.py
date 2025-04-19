@@ -9,8 +9,9 @@ import logging
 import uuid
 import numpy as np
 import cv2
-from PIL import Image
+from PIL import Image, TiffTags, TiffImagePlugin
 import json
+import re
 from shapely.geometry import Polygon, MultiPolygon, mapping
 from shapely import ops
 
@@ -157,6 +158,99 @@ def merge_nearby_polygons(polygons, distance_threshold=5.0):
     else:
         return []
 
+def extract_geo_coordinates_from_image(image_path):
+    """
+    Extract geographic coordinates from image metadata (EXIF, GeoTIFF).
+    
+    Args:
+        image_path (str): Path to the image file
+        
+    Returns:
+        tuple: (min_lat, min_lon, max_lat, max_lon) or None if not found
+    """
+    try:
+        img = Image.open(image_path)
+        
+        # Check if it's a TIFF image with geospatial data
+        if img.format == 'TIFF' and hasattr(img, 'tag'):
+            logging.info(f"Detected TIFF image, checking for geospatial metadata")
+            
+            # Try to extract ModelPixelScaleTag (33550) and ModelTiepointTag (33922)
+            pixel_scale_tag = None
+            tiepoint_tag = None
+            
+            # Check for tags
+            for tag_id, value in img.tag.items():
+                tag_name = TiffTags.TAGS.get(tag_id, str(tag_id))
+                logging.debug(f"TIFF tag: {tag_name} ({tag_id}): {value}")
+                
+                if tag_id == 33550:  # ModelPixelScaleTag
+                    pixel_scale_tag = value
+                elif tag_id == 33922:  # ModelTiepointTag
+                    tiepoint_tag = value
+            
+            if pixel_scale_tag and tiepoint_tag:
+                # Extract pixel scale (x, y)
+                x_scale = float(pixel_scale_tag[0])
+                y_scale = float(pixel_scale_tag[1])
+                
+                # Extract model tiepoint (raster origin)
+                i, j, k = float(tiepoint_tag[0]), float(tiepoint_tag[1]), float(tiepoint_tag[2])
+                x, y, z = float(tiepoint_tag[3]), float(tiepoint_tag[4]), float(tiepoint_tag[5])
+                
+                # Calculate bounds based on image dimensions
+                width, height = img.size
+                
+                # Calculate bounds
+                min_lon = x
+                max_lat = y
+                max_lon = x + width * x_scale
+                min_lat = y - height * y_scale
+                
+                logging.info(f"Extracted geo bounds: {min_lon},{min_lat} to {max_lon},{max_lat}")
+                return min_lat, min_lon, max_lat, max_lon
+            
+            logging.info("No valid geospatial metadata found in TIFF")
+            
+        # Check for EXIF GPS data (typically in JPEG)
+        elif hasattr(img, '_getexif') and img._getexif():
+            exif = img._getexif()
+            if exif and 34853 in exif:  # 34853 is the GPS Info tag
+                gps_info = exif[34853]
+                
+                # Extract GPS data
+                if 1 in gps_info and 2 in gps_info and 3 in gps_info and 4 in gps_info:
+                    # Latitude
+                    lat_ref = gps_info[1]  # 'N' or 'S'
+                    lat = gps_info[2]  # ((deg_num, deg_denom), (min_num, min_denom), (sec_num, sec_denom))
+                    lat_val = lat[0][0]/lat[0][1] + lat[1][0]/(lat[1][1]*60) + lat[2][0]/(lat[2][1]*3600)
+                    if lat_ref == 'S':
+                        lat_val = -lat_val
+                    
+                    # Longitude
+                    lon_ref = gps_info[3]  # 'E' or 'W'
+                    lon = gps_info[4]
+                    lon_val = lon[0][0]/lon[0][1] + lon[1][0]/(lon[1][1]*60) + lon[2][0]/(lon[2][1]*3600)
+                    if lon_ref == 'W':
+                        lon_val = -lon_val
+                    
+                    # Create a small region around the point
+                    delta = 0.01  # ~1km at the equator
+                    min_lat = lat_val - delta
+                    min_lon = lon_val - delta
+                    max_lat = lat_val + delta
+                    max_lon = lon_val + delta
+                    
+                    logging.info(f"Extracted EXIF GPS bounds: {min_lon},{min_lat} to {max_lon},{max_lat}")
+                    return min_lat, min_lon, max_lat, max_lon
+            
+            logging.info("No valid GPS metadata found in EXIF")
+        
+        return None
+    except Exception as e:
+        logging.error(f"Error extracting geo coordinates: {str(e)}")
+        return None
+
 def convert_to_geojson_with_transform(polygons, image_height, image_width, 
                                     min_lat=None, min_lon=None, max_lat=None, max_lon=None):
     """
@@ -176,9 +270,9 @@ def convert_to_geojson_with_transform(polygons, image_height, image_width,
     """
     # Set default geographic bounds if not provided
     if None in (min_lon, min_lat, max_lon, max_lat):
-        # Default to somewhere neutral (center of Atlantic Ocean)
-        min_lon, min_lat = -30.0, 0.0
-        max_lon, max_lat = -20.0, 10.0
+        # Default to somewhere neutral (not in New York)
+        min_lon, min_lat = -98.0, 32.0  # Central US
+        max_lon, max_lat = -96.0, 34.0
     
     # Create a GeoJSON feature collection
     geojson = {
@@ -255,12 +349,41 @@ def process_image_to_geojson(image_path, feature_type="buildings"):
             logging.warning("No polygons found in the image after segmentation")
             return {"type": "FeatureCollection", "features": []}
         
+        # Try to extract coordinates from the original image
+        original_image_path = None
+        if "_processed" in image_path:
+            original_image_path = image_path.replace("_processed", "")
+            # Try the original image path but replace the extension with common formats
+            if not os.path.exists(original_image_path):
+                base_path = original_image_path.rsplit('.', 1)[0]
+                for ext in ['.tif', '.tiff', '.jpg', '.jpeg', '.png']:
+                    if os.path.exists(base_path + ext):
+                        original_image_path = base_path + ext
+                        break
+        
+        # Extract bounds from image if possible
+        coords = None
+        if original_image_path and os.path.exists(original_image_path):
+            logging.info(f"Checking original image for geospatial data: {original_image_path}")
+            coords = extract_geo_coordinates_from_image(original_image_path)
+        
+        if not coords:
+            logging.info("Checking processed image for geospatial data")
+            coords = extract_geo_coordinates_from_image(image_path)
+        
+        # Use extracted coordinates or defaults
+        if coords:
+            min_lat, min_lon, max_lat, max_lon = coords
+        else:
+            logging.info("No coordinates found in image, using default location in Central US")
+            min_lat, min_lon = 32.0, -98.0  # Central US
+            max_lat, max_lon = 34.0, -96.0
+        
         # Convert to GeoJSON with proper transformation
         geojson = convert_to_geojson_with_transform(
             polygons, height, width,
-            # Use generic bounds away from Manhattan
-            min_lat=40.0, min_lon=-75.0,
-            max_lat=42.0, max_lon=-73.0
+            min_lat=min_lat, min_lon=min_lon,
+            max_lat=max_lat, max_lon=max_lon
         )
         
         return geojson
