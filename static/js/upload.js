@@ -44,6 +44,7 @@ uploadForm.addEventListener('submit', function(event) {
     // Create FormData object for file upload
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('feature_type', featureTypeSelect.value);
     
     // Upload the file
     fetch('/upload', {
@@ -83,6 +84,21 @@ function displayResults(data) {
     // Initialize the map if not already done
     if (!map) {
         initMap();
+    }
+    
+    // Update the header to show the feature type
+    const featureType = data.feature_type || 'buildings';
+    const featureTypeName = {
+        'buildings': 'Buildings',
+        'trees': 'Trees/Vegetation',
+        'water': 'Water Bodies',
+        'roads': 'Roads'
+    }[featureType] || 'Features';
+    
+    // Update the card header text
+    const resultsHeader = document.querySelector('#resultsSection .card-header h3');
+    if (resultsHeader) {
+        resultsHeader.innerHTML = `<i class="fas fa-map"></i> ${featureTypeName} Extraction Results`;
     }
     
     // Display the GeoJSON on the map

@@ -5,6 +5,7 @@
 
 // Store the map object globally
 let map = null;
+let currentFeatureType = 'buildings';
 
 // Initialize the map with default settings
 function initMap() {
@@ -14,7 +15,8 @@ function initMap() {
     }
 
     // Create a new map centered on a default location
-    map = L.map('map').setView([40.7, -74.0], 10);
+    // Use a location outside of Manhattan
+    map = L.map('map').setView([41.0, -74.5], 10);
 
     // Add the base tile layer (OpenStreetMap)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -34,6 +36,11 @@ function displayGeoJSON(geojsonData) {
         initMap();
     }
 
+    // Update feature type if available in the data
+    if (geojsonData && geojsonData.feature_type) {
+        currentFeatureType = geojsonData.feature_type;
+    }
+
     // Clear any existing GeoJSON layers
     map.eachLayer(function(layer) {
         if (layer instanceof L.GeoJSON) {
@@ -41,35 +48,106 @@ function displayGeoJSON(geojsonData) {
         }
     });
 
-    // Add the GeoJSON data to the map with styling
+    // Add the GeoJSON data to the map with styling based on feature type
     const geojsonLayer = L.geoJSON(geojsonData, {
         style: function(feature) {
-            // Style polygons
-            return {
-                fillColor: getRandomColor(),
-                weight: 2,
-                opacity: 1,
-                color: '#666',
-                fillOpacity: 0.7
-            };
+            // Different styling based on feature type
+            switch(currentFeatureType) {
+                case 'buildings':
+                    return {
+                        fillColor: '#e63946',
+                        weight: 1.5,
+                        opacity: 1,
+                        color: '#999',
+                        fillOpacity: 0.7
+                    };
+                case 'trees':
+                    return {
+                        fillColor: '#2a9d8f',
+                        weight: 1,
+                        opacity: 0.9,
+                        color: '#006d4f',
+                        fillOpacity: 0.7
+                    };
+                case 'water':
+                    return {
+                        fillColor: '#0077b6',
+                        weight: 1,
+                        opacity: 0.8,
+                        color: '#023e8a',
+                        fillOpacity: 0.6
+                    };
+                case 'roads':
+                    return {
+                        fillColor: '#a8dadc',
+                        weight: 3,
+                        opacity: 1,
+                        color: '#457b9d',
+                        fillOpacity: 0.8
+                    };
+                default:
+                    return {
+                        fillColor: getRandomColor(),
+                        weight: 2,
+                        opacity: 1,
+                        color: '#666',
+                        fillOpacity: 0.7
+                    };
+            }
         },
         pointToLayer: function(feature, latlng) {
-            // Style points
-            return L.circleMarker(latlng, {
+            // Style points based on feature type
+            let pointStyle = {
                 radius: 8,
-                fillColor: getRandomColor(),
                 color: "#000",
                 weight: 1,
                 opacity: 1,
                 fillOpacity: 0.8
-            });
+            };
+            
+            // Set color based on feature type
+            switch(currentFeatureType) {
+                case 'buildings':
+                    pointStyle.fillColor = '#e63946';
+                    break;
+                case 'trees':
+                    pointStyle.fillColor = '#2a9d8f';
+                    break;
+                case 'water':
+                    pointStyle.fillColor = '#0077b6';
+                    break;
+                case 'roads':
+                    pointStyle.fillColor = '#a8dadc';
+                    break;
+                default:
+                    pointStyle.fillColor = getRandomColor();
+            }
+            
+            return L.circleMarker(latlng, pointStyle);
         },
         onEachFeature: function(feature, layer) {
             // Add popups to show feature properties
             if (feature.properties) {
                 let popupContent = '<div class="feature-popup">';
                 
-                popupContent += '<h5>Feature Properties</h5>';
+                // Set title based on feature type
+                let title = 'Feature';
+                switch(currentFeatureType) {
+                    case 'buildings':
+                        title = 'Building';
+                        break;
+                    case 'trees':
+                        title = 'Tree/Vegetation';
+                        break;
+                    case 'water':
+                        title = 'Water Body';
+                        break;
+                    case 'roads':
+                        title = 'Road';
+                        break;
+                }
+                
+                popupContent += `<h5>${title} Properties</h5>`;
                 
                 for (const [key, value] of Object.entries(feature.properties)) {
                     popupContent += `<strong>${key}:</strong> ${value}<br>`;
