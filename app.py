@@ -5,7 +5,7 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 import json
 from werkzeug.utils import secure_filename
 from utils.image_processing import process_image
-from utils.geo_processing import convert_to_geojson
+from utils.geospatial import process_image_to_geojson
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -58,8 +58,8 @@ def upload_file():
             # Process the image
             processed_image_path = process_image(file_path, PROCESSED_FOLDER)
             
-            # Convert processed image to GeoJSON
-            geojson_data = convert_to_geojson(processed_image_path)
+            # Convert processed image to GeoJSON using improved processing
+            geojson_data = process_image_to_geojson(processed_image_path)
             
             # Save GeoJSON to file
             geojson_filename = f"{uuid.uuid4().hex}.geojson"
