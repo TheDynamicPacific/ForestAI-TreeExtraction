@@ -46,10 +46,23 @@ uploadForm.addEventListener('submit', function(event) {
     formData.append('file', file);
     formData.append('feature_type', featureTypeSelect.value);
     
-    // Upload the file
+    // Upload the file - add error handling for network issues
     fetch('/upload', {
         method: 'POST',
-        body: formData
+        body: formData,
+        // Add timeout for large uploads
+        timeout: 120000, // 2 minutes timeout
+        // Add credentials for session cookies
+        credentials: 'same-origin'
+    }).catch(error => {
+        console.error('Network error occurred:', error);
+        processingStatus.classList.add('d-none');
+        if (error.name === 'AbortError') {
+            showError('Upload timed out. Try a smaller file or check your connection.');
+        } else {
+            showError('Network error: ' + error.message);
+        }
+        throw error;
     })
     .then(response => {
         if (!response.ok) {

@@ -13,6 +13,8 @@ logging.basicConfig(level=logging.DEBUG)
 # Create Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev_secret_key")
+app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024  # Limit uploads to 30MB
+app.config['UPLOAD_TIMEOUT'] = 120  # Increase upload timeout
 
 # Configure upload folder
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
