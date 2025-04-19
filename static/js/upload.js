@@ -9,6 +9,7 @@ let currentGeoJsonFilename = null;
 // DOM elements
 const uploadForm = document.getElementById('uploadForm');
 const imageFileInput = document.getElementById('imageFile');
+const featureTypeSelect = document.getElementById('featureType');
 const processingStatus = document.getElementById('processingStatus');
 const errorMessage = document.getElementById('errorMessage');
 const resultsSection = document.getElementById('resultsSection');

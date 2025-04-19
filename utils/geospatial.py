@@ -222,12 +222,13 @@ def convert_to_geojson_with_transform(polygons, image_height, image_width,
     
     return geojson
 
-def process_image_to_geojson(image_path):
+def process_image_to_geojson(image_path, feature_type="buildings"):
     """
     Complete pipeline to convert an image to a simplified GeoJSON.
     
     Args:
         image_path (str): Path to the processed image
+        feature_type (str): Type of features to extract ("buildings", "trees", "water", "roads")
         
     Returns:
         dict: GeoJSON object
@@ -237,29 +238,27 @@ def process_image_to_geojson(image_path):
         img = Image.open(image_path)
         width, height = img.size
         
-        # Extract contours from the image
-        polygons = extract_contours(image_path)
-        logging.info(f"Extracted {len(polygons)} initial polygons")
+        # Import segmentation module here to avoid circular imports
+        from utils.segmentation import segment_and_extract_features
+        
+        # Extract features using advanced segmentation
+        _, polygons = segment_and_extract_features(
+            image_path, 
+            output_mask_path=None,
+            feature_type=feature_type,
+            min_area=50, 
+            simplify_tolerance=2.0,
+            merge_distance=5.0
+        )
         
         if not polygons:
-            logging.warning("No polygons found in the image")
+            logging.warning("No polygons found in the image after segmentation")
             return {"type": "FeatureCollection", "features": []}
-        
-        # Simplify polygons to reduce vertex count
-        polygons = simplify_polygons(polygons, tolerance=2.0)
-        logging.info(f"After simplification: {len(polygons)} polygons")
-        
-        # Regularize appropriate polygons
-        polygons = regularize_polygons(polygons)
-        
-        # Merge nearby polygons to reduce count
-        polygons = merge_nearby_polygons(polygons)
-        logging.info(f"After merging: {len(polygons)} polygons")
         
         # Convert to GeoJSON with proper transformation
         geojson = convert_to_geojson_with_transform(
             polygons, height, width,
-            # Use generic bounds as we don't have real georeferencing
+            # Use generic bounds away from Manhattan
             min_lat=40.0, min_lon=-75.0,
             max_lat=42.0, max_lon=-73.0
         )

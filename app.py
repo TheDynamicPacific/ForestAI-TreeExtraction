@@ -43,6 +43,10 @@ def upload_file():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
     
+    # Get feature type, default to buildings if not specified
+    feature_type = request.form.get('feature_type', 'buildings')
+    logging.info(f"Processing image for feature type: {feature_type}")
+    
     # Check if the file is an allowed type
     if file and allowed_file(file.filename):
         # Generate a unique filename to prevent collisions
@@ -58,8 +62,8 @@ def upload_file():
             # Process the image
             processed_image_path = process_image(file_path, PROCESSED_FOLDER)
             
-            # Convert processed image to GeoJSON using improved processing
-            geojson_data = process_image_to_geojson(processed_image_path)
+            # Convert processed image to GeoJSON using improved processing with feature type
+            geojson_data = process_image_to_geojson(processed_image_path, feature_type=feature_type)
             
             # Save GeoJSON to file
             geojson_filename = f"{uuid.uuid4().hex}.geojson"
@@ -72,6 +76,7 @@ def upload_file():
                 'success': True,
                 'filename': unique_filename,
                 'geojson_filename': geojson_filename,
+                'feature_type': feature_type,
                 'geojson': geojson_data
             })
             
