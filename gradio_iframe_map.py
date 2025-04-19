@@ -126,12 +126,12 @@ def create_map_html(geojson_path, geotiff_path, feature_type, use_split=True):
         if use_split:
             try:
                 # Try to create a split map
-                logger.debug(f"Creating split map with left layer: Extracted {feature_type.capitalize()}, right layer: Satellite Imagery")
+                logger.debug(f"Creating split map with left layer: Satellite Imagery, right layer: Extracted {feature_type.capitalize()}")
 
                 # Create the split map
                 split_map = m.split_map(
-                    left_layer=f"Extracted {feature_type.capitalize()}",
-                    right_layer="Satellite Imagery"
+                    left_layer="Satellite Imagery",
+                    right_layer=f"Extracted {feature_type.capitalize()}"
                 )
 
                 if split_map is not None:
