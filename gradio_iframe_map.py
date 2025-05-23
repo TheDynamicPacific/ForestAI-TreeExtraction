@@ -13,6 +13,8 @@ import traceback
 from utils.advanced_extraction import extract_features_from_geotiff
 import folium
 from folium import plugins
+import numpy as np
+from PIL import Image
 
 # Create directories if they don't exist
 os.makedirs('uploads', exist_ok=True)
@@ -32,12 +34,9 @@ logging.basicConfig(
 
 logger = logging.getLogger('forestai_gradio')
 
-# Define feature styles
+# Define feature styles - Only trees with green edge and yellow fill
 FEATURE_STYLES = {
-    'buildings': {"color": "yellow", "fillColor": "yellow", "fillOpacity": 0.4, "weight": 2},
-    'trees': {"color": "green", "fillColor": "green", "fillOpacity": 0.4, "weight": 2},
-    'water': {"color": "blue", "fillColor": "blue", "fillOpacity": 0.4, "weight": 2},
-    'roads': {"color": "red", "fillColor": "red", "fillOpacity": 0.4, "weight": 3}
+    'trees': {"color": "green", "fillColor": "yellow", "fillOpacity": 0.2, "weight": 2}
 }
 
 def get_bounds_from_geotiff(geotiff_path):
@@ -148,57 +147,18 @@ def create_split_view_map(geojson_path, geotiff_path, feature_type):
         if gdf.crs and gdf.crs != 'EPSG:4326':
             gdf = gdf.to_crs('EPSG:4326')
 
-        # Get the style for the feature type
-        style = FEATURE_STYLES.get(feature_type, {"color": "yellow", "fillOpacity": 0.4})
+        # Get the style for the feature type (green edge, yellow fill)
+        style = FEATURE_STYLES.get(feature_type, {"color": "green", "fillColor": "yellow", "fillOpacity": 0.4})
 
         # Create GeoJSON layer from the data
         geojson_layer = folium.GeoJson(
             gdf.to_json(),
-            name=f'{feature_type.capitalize()}',
+            name=f'Extracted Trees',
             style_function=lambda x: style
         )
 
         # Add the GeoJSON layer to the map
         geojson_layer.add_to(m)
-
-        # Add the raster overlay using ImageOverlay
-        try:
-            with rasterio.open(geotiff_path) as src:
-                # Read the image data
-                img = src.read()
-                
-                # Convert to RGB if needed
-                if img.shape[0] >= 3:
-                    # Take first 3 bands as RGB
-                    rgb = np.transpose(img[:3], (1, 2, 0))
-                else:
-                    # Single band - replicate to RGB
-                    rgb = np.repeat(img[0:1], 3, axis=0)
-                    rgb = np.transpose(rgb, (1, 2, 0))
-                
-                # Normalize to 0-255 range
-                rgb = ((rgb - rgb.min()) / (rgb.max() - rgb.min()) * 255).astype(np.uint8)
-                
-                # Create a temporary PNG file
-                from PIL import Image
-                import numpy as np
-                temp_img_path = os.path.join('temp', f'temp_{uuid.uuid4().hex}.png')
-                Image.fromarray(rgb).save(temp_img_path)
-                
-                # Add as image overlay
-                img_overlay = folium.raster_layers.ImageOverlay(
-                    image=temp_img_path,
-                    bounds=[[south, west], [north, east]],
-                    name='GeoTIFF Overlay',
-                    opacity=0.8,
-                    interactive=True,
-                    cross_origin=False,
-                    zindex=1
-                )
-                img_overlay.add_to(m)
-                
-        except Exception as e:
-            logger.warning(f"Could not add raster overlay: {str(e)}")
 
         # Add side-by-side plugin
         plugins.SideBySideLayers(
@@ -259,11 +219,11 @@ def create_map_html(geojson_path, geotiff_path, feature_type, use_split=True):
         gdf = gpd.read_file(geojson_path)
 
         # Get the style for the feature type
-        style = FEATURE_STYLES.get(feature_type, {"color": "yellow", "fillOpacity": 0.4})
+        style = FEATURE_STYLES.get(feature_type, {"color": "green", "fillColor": "yellow", "fillOpacity": 0.4})
         logger.debug(f"Using style: {style}")
 
         # Add the GeoJSON to the map
-        m.add_gdf(gdf, layer_name=f"Extracted {feature_type.capitalize()}", style=style)
+        m.add_gdf(gdf, layer_name=f"Extracted Trees", style=style)
 
         # Generate a unique filename for the HTML
         unique_id = str(uuid.uuid4().hex)
@@ -280,13 +240,16 @@ def create_map_html(geojson_path, geotiff_path, feature_type, use_split=True):
         logger.error(traceback.format_exc())
         return None
 
-def upload_and_process(geotiff_file, feature_type):
+def upload_and_process(geotiff_file):
     """Upload and process a GeoTIFF file."""
     if geotiff_file is None:
         logger.warning("No file uploaded")
         return None, "Please upload a GeoTIFF file"
 
     try:
+        # Fixed to trees only
+        feature_type = 'trees'
+        
         # Log file information
         logger.info(f"Received file: {geotiff_file}")
 
@@ -323,7 +286,7 @@ def upload_and_process(geotiff_file, feature_type):
         logger.info(f"File saved to {geotiff_path}")
 
         # Process the GeoTIFF
-        logger.info(f"Processing GeoTIFF for {feature_type} extraction")
+        logger.info(f"Processing GeoTIFF for tree extraction")
         geojson_path, error = process_geotiff(geotiff_path, feature_type)
 
         if error:
@@ -357,7 +320,7 @@ def upload_and_process(geotiff_file, feature_type):
             '''
 
             # Return the iframe HTML and a success message
-            return iframe_html, f"Successfully extracted {feature_type} from {filename}"
+            return iframe_html, f"Successfully extracted trees from {filename}"
         else:
             logger.error("Failed to create map")
             return None, "Failed to create map"
@@ -368,52 +331,46 @@ def upload_and_process(geotiff_file, feature_type):
 
 def create_interface():
     """Create the Gradio interface."""
-    with gr.Blocks(title="ForestAI - Feature Extraction with Map") as app:
-        gr.Markdown("# ForestAI - Feature Extraction with Map")
-        gr.Markdown("Upload a GeoTIFF file and select a feature type to extract. The result will be displayed on a split-view map.")
+    with gr.Blocks(title="ForestAI - Tree Detection") as app:
+        gr.Markdown("# ForestAI - Tree Detection from Satellite Imagery")
+        gr.Markdown("Upload a GeoTIFF file to detect and map trees. The result will be displayed on a split-view map.")
 
         with gr.Row():
             with gr.Column(scale=1):
                 geotiff_file = gr.File(label="Upload GeoTIFF File")
-                feature_type = gr.Dropdown(
-                    choices=["buildings", "trees", "water", "roads"],
-                    label="Feature Type",
-                    value="buildings"
-                )
-                process_btn = gr.Button("Process GeoTIFF", variant="primary")
+                process_btn = gr.Button("Detect Trees", variant="primary")
                 status_output = gr.Textbox(label="Status", interactive=False)
 
             with gr.Column(scale=2):
                 # Use an HTML component to display the map
                 map_output = gr.HTML(
                     label="Map Output",
-                    value='<div style="text-align:center; padding:20px;">Upload a GeoTIFF file and click "Process GeoTIFF" to see the map</div>',
+                    value='<div style="text-align:center; padding:20px;">Upload a GeoTIFF file and click "Detect Trees" to see the map</div>',
                     elem_id="map-container"
                 )
 
         process_btn.click(
             fn=upload_and_process,
-            inputs=[geotiff_file, feature_type],
+            inputs=[geotiff_file],
             outputs=[map_output, status_output]
         )
 
         gr.Markdown("""
         ## How to use the map:
         1. Upload a GeoTIFF file
-        2. Select the feature type to extract
-        3. Click "Process GeoTIFF"
-        4. The map will display with a split-view slider:
+        2. Click "Detect Trees"
+        3. The map will display with a split-view slider:
            - Left side: OpenStreetMap base layer
            - Right side: Satellite imagery
-           - Extracted features overlay on both sides
-        5. Drag the vertical slider to compare the layers
-        6. Use the layer control to toggle features on/off
-        7. Zoom in/out and pan the map to explore the results
+           - Extracted trees overlay (green edge with yellow fill) on both sides
+        4. Drag the vertical slider to compare the layers
+        5. Use the layer control to toggle trees on/off
+        6. Zoom in/out and pan the map to explore the results
         """)
 
     return app
 
 if __name__ == "__main__":
-    logger.info("Starting ForestAI Gradio application")
+    logger.info("Starting ForestAI Tree Detection application")
     app = create_interface()
     app.launch(share=False)
