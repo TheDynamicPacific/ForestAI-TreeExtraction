@@ -11,6 +11,8 @@ import uuid
 import logging
 import traceback
 from utils.advanced_extraction import extract_features_from_geotiff
+import folium
+from folium import plugins
 
 # Create directories if they don't exist
 os.makedirs('uploads', exist_ok=True)
@@ -88,10 +90,153 @@ def process_geotiff(geotiff_path, feature_type):
         logger.error(traceback.format_exc())
         return None, f"Error processing GeoTIFF: {str(e)}"
 
+def create_split_view_map(geojson_path, geotiff_path, feature_type):
+    """Create a split-view map with proper layer control."""
+    try:
+        logger.info(f"Creating split-view map with {geojson_path} and {geotiff_path}")
+
+        # Get bounds from GeoTIFF
+        bounds = get_bounds_from_geotiff(geotiff_path)
+        if bounds:
+            west, south, east, north = bounds
+            center = [(south + north) / 2, (west + east) / 2]
+            # Calculate appropriate zoom level based on bounds
+            lat_diff = north - south
+            lon_diff = east - west
+            max_diff = max(lat_diff, lon_diff)
+            if max_diff < 0.01:
+                zoom = 16
+            elif max_diff < 0.05:
+                zoom = 14
+            elif max_diff < 0.1:
+                zoom = 12
+            else:
+                zoom = 10
+        else:
+            center = [0, 0]
+            zoom = 2
+
+        # Create base map
+        m = folium.Map(location=center, zoom_start=zoom)
+
+        # Create two tile layers for the split view
+        # Left layer - OpenStreetMap
+        left_layer = folium.TileLayer(
+            tiles='OpenStreetMap',
+            name='OpenStreetMap',
+            overlay=False,
+            control=False
+        )
+        
+        # Right layer - Satellite imagery
+        right_layer = folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri',
+            name='Satellite',
+            overlay=False,
+            control=False
+        )
+
+        # Add both layers to the map
+        left_layer.add_to(m)
+        right_layer.add_to(m)
+
+        # Read GeoJSON data
+        gdf = gpd.read_file(geojson_path)
+        
+        # Convert to WGS84 if needed
+        if gdf.crs and gdf.crs != 'EPSG:4326':
+            gdf = gdf.to_crs('EPSG:4326')
+
+        # Get the style for the feature type
+        style = FEATURE_STYLES.get(feature_type, {"color": "yellow", "fillOpacity": 0.4})
+
+        # Create GeoJSON layer from the data
+        geojson_layer = folium.GeoJson(
+            gdf.to_json(),
+            name=f'{feature_type.capitalize()}',
+            style_function=lambda x: style
+        )
+
+        # Add the GeoJSON layer to the map
+        geojson_layer.add_to(m)
+
+        # Add the raster overlay using ImageOverlay
+        try:
+            with rasterio.open(geotiff_path) as src:
+                # Read the image data
+                img = src.read()
+                
+                # Convert to RGB if needed
+                if img.shape[0] >= 3:
+                    # Take first 3 bands as RGB
+                    rgb = np.transpose(img[:3], (1, 2, 0))
+                else:
+                    # Single band - replicate to RGB
+                    rgb = np.repeat(img[0:1], 3, axis=0)
+                    rgb = np.transpose(rgb, (1, 2, 0))
+                
+                # Normalize to 0-255 range
+                rgb = ((rgb - rgb.min()) / (rgb.max() - rgb.min()) * 255).astype(np.uint8)
+                
+                # Create a temporary PNG file
+                from PIL import Image
+                import numpy as np
+                temp_img_path = os.path.join('temp', f'temp_{uuid.uuid4().hex}.png')
+                Image.fromarray(rgb).save(temp_img_path)
+                
+                # Add as image overlay
+                img_overlay = folium.raster_layers.ImageOverlay(
+                    image=temp_img_path,
+                    bounds=[[south, west], [north, east]],
+                    name='GeoTIFF Overlay',
+                    opacity=0.8,
+                    interactive=True,
+                    cross_origin=False,
+                    zindex=1
+                )
+                img_overlay.add_to(m)
+                
+        except Exception as e:
+            logger.warning(f"Could not add raster overlay: {str(e)}")
+
+        # Add side-by-side plugin
+        plugins.SideBySideLayers(
+            layer_left=left_layer,
+            layer_right=right_layer
+        ).add_to(m)
+
+        # Add layer control
+        folium.LayerControl().add_to(m)
+
+        # Fit bounds if available
+        if bounds:
+            m.fit_bounds([[south, west], [north, east]])
+
+        # Generate a unique filename for the HTML
+        unique_id = str(uuid.uuid4().hex)
+        html_path = os.path.join('static', f"split_map_{unique_id}.html")
+        
+        # Save the map
+        m.save(html_path)
+        logger.info(f"Split-view map saved to {html_path}")
+
+        return html_path
+
+    except Exception as e:
+        logger.error(f"Error creating split-view map: {str(e)}")
+        logger.error(traceback.format_exc())
+        return None
+
 def create_map_html(geojson_path, geotiff_path, feature_type, use_split=True):
     """Create an HTML map with the GeoJSON and GeoTIFF layers."""
     try:
-        logger.info(f"Creating map with {geojson_path} and {geotiff_path}")
+        if use_split:
+            # Use the new split-view implementation
+            return create_split_view_map(geojson_path, geotiff_path, feature_type)
+        
+        # Regular map implementation (fallback)
+        logger.info(f"Creating regular map with {geojson_path} and {geotiff_path}")
 
         # Create a leafmap Map
         m = leafmap.Map()
@@ -122,33 +267,6 @@ def create_map_html(geojson_path, geotiff_path, feature_type, use_split=True):
 
         # Generate a unique filename for the HTML
         unique_id = str(uuid.uuid4().hex)
-
-        if use_split:
-            try:
-                # Try to create a split map
-                logger.debug(f"Creating split map with left layer: Satellite Imagery, right layer: Extracted {feature_type.capitalize()}")
-
-                # Create the split map
-                split_map = m.split_map(
-                    left_layer="Satellite Imagery",
-                    right_layer=f"Extracted {feature_type.capitalize()}"
-                )
-
-                if split_map is not None:
-                    # Split map was created successfully
-                    html_path = os.path.join('static', f"split_map_{unique_id}.html")
-                    logger.debug(f"Saving split map to: {html_path}")
-
-                    # Save the split map to HTML
-                    split_map.save(html_path)
-                    logger.info(f"Split map saved to {html_path}")
-                    return html_path
-            except Exception as e:
-                logger.error(f"Error creating split map: {str(e)}")
-                logger.error(traceback.format_exc())
-                # Fall through to regular map
-
-        # If split map failed or wasn't requested, create a regular map
         html_path = os.path.join('static', f"map_{unique_id}.html")
         logger.debug(f"Creating regular map and saving to: {html_path}")
 
@@ -252,7 +370,7 @@ def create_interface():
     """Create the Gradio interface."""
     with gr.Blocks(title="ForestAI - Feature Extraction with Map") as app:
         gr.Markdown("# ForestAI - Feature Extraction with Map")
-        gr.Markdown("Upload a GeoTIFF file and select a feature type to extract. The result will be displayed on a map.")
+        gr.Markdown("Upload a GeoTIFF file and select a feature type to extract. The result will be displayed on a split-view map.")
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -284,9 +402,13 @@ def create_interface():
         1. Upload a GeoTIFF file
         2. Select the feature type to extract
         3. Click "Process GeoTIFF"
-        4. The map will display with the extracted features overlaid on the satellite imagery
-        5. If available, a split map will be shown with a slider to compare the layers
-        6. You can zoom in/out and pan the map to explore the results
+        4. The map will display with a split-view slider:
+           - Left side: OpenStreetMap base layer
+           - Right side: Satellite imagery
+           - Extracted features overlay on both sides
+        5. Drag the vertical slider to compare the layers
+        6. Use the layer control to toggle features on/off
+        7. Zoom in/out and pan the map to explore the results
         """)
 
     return app
